@@ -1,18 +1,21 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-
 using NuGet.Frameworks;
 using NuGet.LibraryModel;
 using NuGet.ProjectModel;
+using NuGet.RuntimeModel;
+using NuGet.Shared;
+using NuGet.Test.Utility;
 
 namespace NuGet.Commands.Test
 {
-    public static class ProjectJsonTestHelpers
+    public static class ProjectTestHelpers
     {
         /// <summary>
         /// Create a restore request for the specs. Restore only the first one.
@@ -192,24 +195,6 @@ namespace NuGet.Commands.Test
             }
 
             return updated;
-        }
-
-        public static PackageSpec GetPackageSpec(string projectName, string rootPath = @"C:\", string framework = "net5.0")
-        {
-            const string referenceSpec = @"
-                {
-                    ""frameworks"": {
-                        ""TARGET_FRAMEWORK"": {
-                            ""dependencies"": {
-                            }
-                        }
-                    }
-                }";
-
-            var spec = referenceSpec.Replace("TARGET_FRAMEWORK", framework);
-            var packageSpec = JsonPackageSpecReader.GetPackageSpec(spec, projectName, Path.Combine(rootPath, projectName, projectName)).WithTestRestoreMetadata();
-            packageSpec.RestoreSettings.HideWarningsAndErrors = true; // Pretend this is running in VS and this is a .NET Core project.
-            return packageSpec;
         }
     }
 }
