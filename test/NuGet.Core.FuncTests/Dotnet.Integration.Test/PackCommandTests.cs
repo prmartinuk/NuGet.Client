@@ -4371,7 +4371,7 @@ namespace ClassLibrary
 
         [PlatformTheory(Platform.Windows)]
         [InlineData("Microsoft.NETCore.App", "true", "netcoreapp3.0", "", "netcoreapp3.0")]
-        [InlineData("Microsoft.NETCore.App", "false", "netcoreapp3.0", "", "netcoreapp3.0")]
+        [InlineData("Microsoft.NETCore.App", "false", "netcoreapp3.0", "", "")]
         [InlineData("Microsoft.WindowsDesktop.App", "true", "netstandard2.1;netcoreapp3.0", "netcoreapp3.0", "netcoreapp3.0")]
         [InlineData("Microsoft.WindowsDesktop.App;Microsoft.AspNetCore.App", "true;true", "netcoreapp3.0", "netcoreapp3.0", "netcoreapp3.0")]
         [InlineData("Microsoft.WindowsDesktop.App.WPF;Microsoft.WindowsDesktop.App.WindowsForms", "true;false", "netcoreapp3.0", "", "netcoreapp3.0")]
@@ -4440,11 +4440,14 @@ namespace ClassLibrary
 
                 using (var nupkgReader = new PackageArchiveReader(nupkgPath))
                 {
-                    var expectedFrameworks = expectedTargetFramework.Split(';');
+                    var expectedFrameworks = expectedTargetFramework.Split(';').Where(fw => !string.IsNullOrEmpty(fw));
 
                     var frameworkItems = nupkgReader.NuspecReader.GetFrameworkRefGroups();
 
-                    Assert.Equal(targetFrameworks.Split(';').Select(fw => NuGetFramework.Parse(fw)).ToHashSet(), frameworkItems.Select(t => t.TargetFramework).ToHashSet());
+                    Assert.Equal(
+                        expectedFrameworks.Select(fw => NuGetFramework.Parse(fw)).ToHashSet(),
+                        frameworkItems.Select(t => t.TargetFramework).ToHashSet()
+                    );
 
                     foreach (var framework in expectedFrameworks)
                     {
