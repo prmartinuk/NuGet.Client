@@ -1736,7 +1736,7 @@ namespace NuGet.Packaging.Test
             }
         }
 
-#if IS_DESKTOP
+#if IS_SIGNING_SUPPORTED
         [Fact]
         public async Task ExtractPackageAsync_UnsignedPackage_WhenRepositorySaysAllPackagesSigned_ErrorAsync()
         {
@@ -2721,7 +2721,7 @@ namespace NuGet.Packaging.Test
             packageDownloader.Verify();
         }
 
-#if IS_DESKTOP
+#if IS_SIGNING_SUPPORTED
         [Fact]
         public async Task InstallFromSourceAsyncByPackageDownloader_TrustedSignPackageAsync()
         {
@@ -3765,6 +3765,98 @@ namespace NuGet.Packaging.Test
             }
         }
 
+        [Fact]
+        public async Task InstallFromSourceAsync_LogsSourceOnVerboseLevel()
+        {
+            // Arrange
+            using (var testDirectory = TestDirectory.Create())
+            {
+                var source = Path.Combine(testDirectory, "source");
+                Directory.CreateDirectory(source);
+                var resolver = new VersionFolderPathResolver(Path.Combine(testDirectory, "gpf"));
+                var identity = new PackageIdentity("A", new NuGetVersion("1.2.3"));
+                var testLogger = new TestLogger();
+
+                var packageFileInfo = await TestPackagesCore.GeneratePackageAsync(
+                   source,
+                   identity.Id,
+                   identity.Version.ToString(),
+                   DateTimeOffset.UtcNow.LocalDateTime,
+                   "content/A.nupkg");
+
+                using (var packageStream = File.OpenRead(packageFileInfo.FullName))
+                {
+                    var packageExtractionContext = new PackageExtractionContext(
+                        PackageSaveMode.Defaultv3,
+                        XmlDocFileSaveMode.None,
+                        clientPolicyContext: null,
+                        testLogger);
+
+                    // Act
+                    await PackageExtractor.InstallFromSourceAsync(
+                        source,
+                        identity,
+                        (stream) => packageStream.CopyToAsync(stream, 4096, CancellationToken.None),
+                        resolver,
+                        packageExtractionContext,
+                        CancellationToken.None);
+
+                    // Assert
+                    File.Exists(resolver.GetPackageFilePath(identity.Id, identity.Version)).Should().BeTrue();
+                    testLogger.VerboseMessages.Should().Contain($"Completed installation of {identity.Id} {identity.Version} from {source}");
+                }
+            }
+        }
+
+        [Fact]
+        public async Task InstallFromSourceAsync_WithPackageDownloader_LogsSourceOnVerboseLevel()
+        {
+            // Arrange
+            using (var testDirectory = TestDirectory.Create())
+            {
+                var source = Path.Combine(testDirectory, "source");
+                Directory.CreateDirectory(source);
+                var resolver = new VersionFolderPathResolver(Path.Combine(testDirectory, "gpf"));
+                var identity = new PackageIdentity("A", new NuGetVersion("1.2.3"));
+                var testLogger = new TestLogger();
+
+                var packageFileInfo = await TestPackagesCore.GeneratePackageAsync(
+                   source,
+                   identity.Id,
+                   identity.Version.ToString(),
+                   DateTimeOffset.UtcNow.LocalDateTime,
+                   "content/A.nupkg");
+
+                using (var packageStream = File.OpenRead(packageFileInfo.FullName))
+                {
+                    var packageExtractionContext = new PackageExtractionContext(
+                        PackageSaveMode.Defaultv3,
+                        XmlDocFileSaveMode.None,
+                        clientPolicyContext: null,
+                        testLogger);
+
+                    using (var packageDownloader = new LocalPackageArchiveDownloader(
+                        source,
+                        Path.Combine(source, $"{identity.Id}.{identity.Version}.nupkg"),
+                        identity,
+                        testLogger))
+                    {
+                        var installed = await PackageExtractor.InstallFromSourceAsync(
+                            identity,
+                            packageDownloader,
+                            resolver,
+                            packageExtractionContext,
+                            CancellationToken.None);
+
+                    }
+
+                    // Assert
+                    File.Exists(resolver.GetPackageFilePath(identity.Id, identity.Version)).Should().BeTrue();
+                    testLogger.VerboseMessages.Should().Contain($"Completed installation of {identity.Id} {identity.Version} from {source}");
+                }
+            }
+        }
+
         private static bool FileExistsRecursively(string directoryPath, string fileNamePattern)
         {
             return Directory.GetFiles(directoryPath, fileNamePattern, SearchOption.AllDirectories)
@@ -3946,7 +4038,7 @@ namespace NuGet.Packaging.Test
             yield return new object[] { SignatureValidationMode.Require };
         }
 
-#if IS_DESKTOP
+#if IS_SIGNING_SUPPORTED
         private static RepositorySignatureInfo CreateTestRepositorySignatureInfo(List<X509Certificate2> certificates, bool allSigned)
         {
             var repoCertificateInfo = new List<IRepositoryCertificateInfo>();

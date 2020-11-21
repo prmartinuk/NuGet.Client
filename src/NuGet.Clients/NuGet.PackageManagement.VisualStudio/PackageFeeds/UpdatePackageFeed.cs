@@ -6,9 +6,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NuGet.ProjectManagement;
+using Microsoft.ServiceHub.Framework;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
+using NuGet.VisualStudio.Internal.Contracts;
 
 namespace NuGet.PackageManagement.VisualStudio
 {
@@ -21,44 +22,23 @@ namespace NuGet.PackageManagement.VisualStudio
         private readonly IPackageMetadataProvider _metadataProvider;
         private readonly PackageSearchMetadataCache _cachedUpdates;
         private readonly Common.ILogger _logger;
-        private readonly NuGetProject[] _projects;
+        private readonly IProjectContextInfo[] _projects;
+        private readonly IServiceBroker _serviceBroker;
 
         public UpdatePackageFeed(
+            IServiceBroker serviceBroker,
             IEnumerable<PackageCollectionItem> installedPackages,
             IPackageMetadataProvider metadataProvider,
-            NuGetProject[] projects,
+            IProjectContextInfo[] projects,
             PackageSearchMetadataCache optionalCachedUpdates,
             Common.ILogger logger)
         {
-            if (installedPackages == null)
-            {
-                throw new ArgumentNullException(nameof(installedPackages));
-            }
-
-            _installedPackages = installedPackages;
-
-            if (metadataProvider == null)
-            {
-                throw new ArgumentNullException(nameof(metadataProvider));
-            }
-
-            _metadataProvider = metadataProvider;
-
-            if (projects == null)
-            {
-                throw new ArgumentNullException(nameof(projects));
-            }
-
-            _projects = projects;
-
+            _installedPackages = installedPackages ?? throw new ArgumentNullException(nameof(installedPackages));
+            _metadataProvider = metadataProvider ?? throw new ArgumentNullException(nameof(metadataProvider));
+            _projects = projects ?? throw new ArgumentNullException(nameof(projects));
             _cachedUpdates = optionalCachedUpdates;
-
-            if (logger == null)
-            {
-                throw new ArgumentNullException(nameof(logger));
-            }
-
-            _logger = logger;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _serviceBroker = serviceBroker ?? throw new ArgumentNullException(nameof(serviceBroker));
         }
 
         public override async Task<SearchResult<IPackageSearchMetadata>> ContinueSearchAsync(ContinuationToken continuationToken, CancellationToken cancellationToken)
@@ -120,17 +100,17 @@ namespace NuGet.PackageManagement.VisualStudio
             var packagesWithUpdates = new List<IPackageSearchMetadata>();
             foreach (var project in _projects)
             {
-                var installed = await project.GetInstalledPackagesAsync(cancellationToken);
+                var installed = await project.GetInstalledPackagesAsync(_serviceBroker, cancellationToken);
                 foreach (var installedPackage in installed)
                 {
-                    var installedVersion = installedPackage.PackageIdentity.Version;
+                    var installedVersion = installedPackage.Identity.Version;
                     var allowedVersions = installedPackage.AllowedVersions ?? VersionRange.All;
 
                     // filter packages based on current package identity
                     var allPackages = prefetchedPackages
                         .Where(p => StringComparer.OrdinalIgnoreCase.Equals(
                             p.Identity.Id,
-                            installedPackage.PackageIdentity.Id))
+                            installedPackage.Identity.Id))
                         .ToArray();
 
                     // and allowed versions

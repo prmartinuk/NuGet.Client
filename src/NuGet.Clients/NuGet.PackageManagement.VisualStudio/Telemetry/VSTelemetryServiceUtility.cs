@@ -90,8 +90,7 @@ namespace NuGet.PackageManagement.Telemetry
                         projectType = NuGetProjectType.UnconfiguredNuGetType;
                     }
                 }
-#if VS15
-                else if (nuGetProject is NetCorePackageReferenceProject)
+                else if (nuGetProject is CpsPackageReferenceProject)
                 {
                     projectType = NuGetProjectType.CPSBasedPackageRefs;
                 }
@@ -99,14 +98,9 @@ namespace NuGet.PackageManagement.Telemetry
                 {
                     projectType = NuGetProjectType.LegacyProjectSystemWithPackageRefs;
                 }
-#endif
                 else if (nuGetProject is ProjectJsonNuGetProject)
                 {
                     projectType = NuGetProjectType.UwpProjectJson;
-                }
-                else if (nuGetProject is ProjectKNuGetProjectBase)
-                {
-                    projectType = NuGetProjectType.XProjProjectJson;
                 }
 
                 var isUpgradable = await NuGetProjectUpgradeUtility.IsNuGetProjectUpgradeableAsync(nuGetProject);

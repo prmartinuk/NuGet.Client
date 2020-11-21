@@ -547,6 +547,15 @@ namespace NuGet.Commands {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to {0} contains more than one path.
+        /// </summary>
+        internal static string Error_MultiplePackagePaths {
+            get {
+                return ResourceManager.GetString("Error_MultiplePackagePaths", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to The package signature did not match any of the allowed certificate fingerprints..
         /// </summary>
         internal static string Error_NoMatchingCertificate {
@@ -664,7 +673,7 @@ namespace NuGet.Commands {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to A platform version for &apos;{0}&apos; could not be inferred..
+        ///   Looks up a localized string similar to Platform version is not present for one or more target frameworks, even though they have specified a platform: {0}.
         /// </summary>
         internal static string Error_PlatformVersionNotPresent {
             get {

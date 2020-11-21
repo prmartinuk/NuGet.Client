@@ -6,11 +6,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.ServiceHub.Framework;
 using NuGet.Frameworks;
 using NuGet.PackageManagement.VisualStudio;
-using NuGet.ProjectManagement;
 using NuGet.Protocol.Core.Types;
 using NuGet.VisualStudio;
+using NuGet.VisualStudio.Internal.Contracts;
 
 namespace NuGet.PackageManagement.UI
 {
@@ -18,20 +19,22 @@ namespace NuGet.PackageManagement.UI
     {
         private readonly Task<PackageCollection> _installedPackagesTask;
 
-        public IEnumerable<SourceRepository> SourceRepositories { get; private set; }
+        public IEnumerable<SourceRepository> SourceRepositories { get; }
 
-        public NuGetPackageManager PackageManager { get; private set; }
+        public NuGetPackageManager PackageManager { get; }
 
-        public NuGetProject[] Projects { get; private set; }
+        public IProjectContextInfo[] Projects { get; }
 
         // Indicates whether the loader is created by solution package manager.
-        public bool IsSolution { get; private set; }
+        public bool IsSolution { get; }
 
-        public IEnumerable<IVsPackageManagerProvider> PackageManagerProviders { get; private set; }
+        public IEnumerable<IVsPackageManagerProvider> PackageManagerProviders { get; }
 
         public PackageSearchMetadataCache CachedPackages { get; set; }
 
-        public IVsSolutionManager SolutionManager { get; private set; }
+        public INuGetSolutionManagerService SolutionManager { get; }
+
+        internal IServiceBroker ServiceBroker { get; }
 
         public PackageLoadContext(
             IEnumerable<SourceRepository> sourceRepositories,
@@ -41,36 +44,41 @@ namespace NuGet.PackageManagement.UI
             SourceRepositories = sourceRepositories;
             IsSolution = isSolution;
             PackageManager = uiContext.PackageManager;
-            Projects = (uiContext.Projects ?? Enumerable.Empty<NuGetProject>()).ToArray();
+            Projects = (uiContext.Projects ?? Enumerable.Empty<IProjectContextInfo>()).ToArray();
             PackageManagerProviders = uiContext.PackageManagerProviders;
-            SolutionManager = uiContext.SolutionManager;
+            SolutionManager = uiContext.SolutionManagerService;
+            ServiceBroker = uiContext.ServiceBroker;
 
-            _installedPackagesTask = PackageCollection.FromProjectsAsync(Projects, CancellationToken.None);
+            _installedPackagesTask = PackageCollection.FromProjectsAsync(
+                ServiceBroker,
+                Projects,
+                CancellationToken.None);
         }
 
         public Task<PackageCollection> GetInstalledPackagesAsync() => _installedPackagesTask;
 
         // Returns the list of frameworks that we need to pass to the server during search
-        public IEnumerable<string> GetSupportedFrameworks()
+        public async Task<IEnumerable<string>> GetSupportedFrameworksAsync()
         {
             var frameworks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var project in Projects)
+            foreach (IProjectContextInfo project in Projects)
             {
-                NuGetFramework framework;
-                if (project.TryGetMetadata(NuGetProjectMetadataKeys.TargetFramework,
-                    out framework))
+                IProjectMetadataContextInfo projectMetadata = await project.GetMetadataAsync(
+                    ServiceBroker,
+                    CancellationToken.None);
+                NuGetFramework framework = projectMetadata.TargetFramework;
+
+                if (framework != null)
                 {
-                    if (framework != null
-                        && framework.IsAny)
+                    if (framework.IsAny)
                     {
                         // One of the project's target framework is AnyFramework. In this case,
                         // we don't need to pass the framework filter to the server.
                         return Enumerable.Empty<string>();
                     }
 
-                    if (framework != null
-                        && framework.IsSpecificFramework)
+                    if (framework.IsSpecificFramework)
                     {
                         frameworks.Add(framework.DotNetFrameworkName);
                     }
@@ -78,10 +86,9 @@ namespace NuGet.PackageManagement.UI
                 else
                 {
                     // we also need to process SupportedFrameworks
-                    IEnumerable<NuGetFramework> supportedFrameworks;
-                    if (project.TryGetMetadata(
-                        NuGetProjectMetadataKeys.SupportedFrameworks,
-                        out supportedFrameworks))
+                    IReadOnlyCollection<NuGetFramework> supportedFrameworks = projectMetadata.SupportedFrameworks;
+
+                    if (supportedFrameworks != null && supportedFrameworks.Count > 0)
                     {
                         foreach (var f in supportedFrameworks)
                         {

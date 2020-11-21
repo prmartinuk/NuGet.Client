@@ -11,6 +11,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft;
+using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
 using NuGet.Commands;
@@ -57,10 +58,16 @@ namespace NuGet.SolutionRestoreManager
         private int _packageCount;
         private int _noOpProjectsCount;
         private int _upToDateProjectCount;
+        private bool _isSolutionLoadRestore;
 
         // relevant to packages.config restore only
         private int _missingPackagesCount;
         private int _currentCount;
+
+        /// <summary>
+        /// Restore end status. For testing purposes
+        /// </summary>
+        internal NuGetOperationStatus Status => _status;
 
         [ImportingConstructor]
         public SolutionRestoreJob(
@@ -107,6 +114,7 @@ namespace NuGet.SolutionRestoreManager
             _solutionUpToDateChecker = solutionRestoreChecker;
         }
 
+
         /// <summary>
         /// Restore job entry point. Not re-entrant.
         /// </summary>
@@ -114,6 +122,7 @@ namespace NuGet.SolutionRestoreManager
             SolutionRestoreRequest request,
             SolutionRestoreJobContext jobContext,
             RestoreOperationLogger logger,
+            bool isSolutionLoadRestore,
             CancellationToken token)
         {
             if (request == null)
@@ -136,21 +145,19 @@ namespace NuGet.SolutionRestoreManager
             // update instance attributes with the shared context values
             _nuGetProjectContext = jobContext.NuGetProjectContext;
             _nuGetProjectContext.OperationId = request.OperationId;
+            _isSolutionLoadRestore = isSolutionLoadRestore;
 
-            using (var ctr1 = token.Register(() => _status = NuGetOperationStatus.Cancelled))
+            try
             {
-                try
-                {
-                    await RestoreAsync(request.ForceRestore, request.RestoreSource, token);
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                }
-                catch (Exception e)
-                {
-                    // Log the exception to the console and activity log
-                    await _logger.LogExceptionAsync(e);
-                }
+                await RestoreAsync(request.ForceRestore, request.RestoreSource, token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception e)
+            {
+                // Log the exception to the console and activity log
+                await _logger.LogExceptionAsync(e);
             }
 
             return _status == NuGetOperationStatus.NoOp || _status == NuGetOperationStatus.Succeeded;
@@ -174,6 +181,8 @@ namespace NuGet.SolutionRestoreManager
             {
                 try
                 {
+                    token.ThrowIfCancellationRequested();
+
                     string solutionDirectory;
                     bool isSolutionAvailable;
 
@@ -227,11 +236,21 @@ namespace NuGet.SolutionRestoreManager
                     // TODO: To limit risk, we only publish the event when there is a cross-platform PackageReference
                     // project in the solution. Extending this behavior to all solutions is tracked here:
                     // NuGet/Home#4478
-                    if (projects.OfType<NetCorePackageReferenceProject>().Any())
+                    if (projects.OfType<CpsPackageReferenceProject>().Any())
                     {
                         _restoreEventsPublisher.OnSolutionRestoreCompleted(
                             new SolutionRestoredEventArgs(_status, solutionDirectory));
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    _status = NuGetOperationStatus.Cancelled;
+                    throw;
+                }
+                catch
+                {
+                    _status = NuGetOperationStatus.Failed;
+                    throw;
                 }
                 finally
                 {
@@ -279,6 +298,9 @@ namespace NuGet.SolutionRestoreManager
                 project => project.GetMetadata<string>(NuGetProjectMetadataKeys.UniqueName));
             var projectIds = sortedProjects.Select(
                 project => project.GetMetadata<string>(NuGetProjectMetadataKeys.ProjectId)).ToArray();
+            var projectDictionary = sortedProjects
+                .GroupBy(x => x.ProjectStyle)
+                .ToDictionary(x => x.Key, y => y.Count());
 
             var restoreTelemetryEvent = new RestoreTelemetryEvent(
                 _nuGetProjectContext.OperationId.ToString(),
@@ -287,11 +309,19 @@ namespace NuGet.SolutionRestoreManager
                 source,
                 startTime,
                 _status,
-                _packageCount,
-                _upToDateProjectCount,
-                _noOpProjectsCount,
+                packageCount: _packageCount,
+                noOpProjectsCount: _noOpProjectsCount,
+                upToDateProjectsCount: _upToDateProjectCount,
+                unknownProjectsCount: projectDictionary.GetValueOrDefault(ProjectStyle.Unknown, 0), // appears in DependencyGraphRestoreUtility
+                projectJsonProjectsCount: projectDictionary.GetValueOrDefault(ProjectStyle.ProjectJson, 0),
+                packageReferenceProjectsCount: projectDictionary.GetValueOrDefault(ProjectStyle.PackageReference, 0),
+                legacyPackageReferenceProjectsCount: sortedProjects.Where(x => x.ProjectStyle == ProjectStyle.PackageReference && x is LegacyPackageReferenceProject).Count(),
+                cpsPackageReferenceProjectsCount: sortedProjects.Where(x => x.ProjectStyle == ProjectStyle.PackageReference && x is CpsPackageReferenceProject).Count(),
+                dotnetCliToolProjectsCount: projectDictionary.GetValueOrDefault(ProjectStyle.DotnetCliTool, 0), // appears in DependencyGraphRestoreUtility
+                packagesConfigProjectsCount: projectDictionary.GetValueOrDefault(ProjectStyle.PackagesConfig, 0),
                 DateTimeOffset.Now,
                 duration,
+                isSolutionLoadRestore: _isSolutionLoadRestore,
                 intervalTimingTracker);
 
             TelemetryActivity.EmitTelemetryEvent(restoreTelemetryEvent);
@@ -323,7 +353,6 @@ namespace NuGet.SolutionRestoreManager
                     var globalPackagesFolder = SettingsUtility.GetGlobalPackagesFolder(_settings);
                     if (!Path.IsPathRooted(globalPackagesFolder))
                     {
-
                         var message = string.Format(
                             CultureInfo.CurrentCulture,
                             Resources.RelativeGlobalPackagesFolder,
@@ -356,6 +385,9 @@ namespace NuGet.SolutionRestoreManager
                 {
                     // Run solution based up to date check.
                     var projectsNeedingRestore = _solutionUpToDateChecker.PerformUpToDateCheck(originalDgSpec, _logger).AsList();
+                    var specialReferencesCount = originalDgSpec.Projects
+                        .Where(x => x.RestoreMetadata.ProjectStyle != ProjectStyle.PackageReference && x.RestoreMetadata.ProjectStyle != ProjectStyle.PackagesConfig && x.RestoreMetadata.ProjectStyle != ProjectStyle.ProjectJson)
+                        .Count();
                     dgSpec = originalDgSpec;
                     // Only use the optimization results if the restore is not `force`.
                     // Still run the optimization check anyways to prep the cache.
@@ -365,10 +397,10 @@ namespace NuGet.SolutionRestoreManager
                         dgSpec = originalDgSpec.WithoutRestores();
                         foreach (var uniqueProjectId in projectsNeedingRestore)
                         {
-                            dgSpec.AddRestore(uniqueProjectId);
+                            dgSpec.AddRestore(uniqueProjectId); // Fill DGSpec copy only with restore-needed projects
                         }
-                        // recorded the number of up to date projects
-                        _upToDateProjectCount = originalDgSpec.Restore.Count - projectsNeedingRestore.Count;
+                        // Calculate the number of up to date projects
+                        _upToDateProjectCount = originalDgSpec.Restore.Count - specialReferencesCount - projectsNeedingRestore.Count;
                         _noOpProjectsCount = _upToDateProjectCount;
                     }
                 }
@@ -395,32 +427,51 @@ namespace NuGet.SolutionRestoreManager
                                 Action<SourceCacheContext> cacheModifier = (cache) => { };
 
                                 var isRestoreOriginalAction = true;
-                                var restoreSummaries = await DependencyGraphRestoreUtility.RestoreAsync(
-                                    _solutionManager,
-                                    dgSpec,
-                                    cacheContext,
-                                    providerCache,
-                                    cacheModifier,
-                                    sources,
-                                    _nuGetProjectContext.OperationId,
-                                    forceRestore,
-                                    isRestoreOriginalAction,
-                                    additionalMessages,
-                                    l,
-                                    t);
-
-                                _packageCount += restoreSummaries.Select(summary => summary.InstallCount).Sum();
-                                var isRestoreFailed = restoreSummaries.Any(summary => summary.Success == false);
-                                _noOpProjectsCount += restoreSummaries.Where(summary => summary.NoOpRestore == true).Count();
-                                _solutionUpToDateChecker.SaveRestoreStatus(restoreSummaries);
-
-                                if (isRestoreFailed)
+                                var isRestoreSucceeded = true;
+                                IReadOnlyList<RestoreSummary> restoreSummaries = null;
+                                try
                                 {
-                                    _status = NuGetOperationStatus.Failed;
+                                    restoreSummaries = await DependencyGraphRestoreUtility.RestoreAsync(
+                                       _solutionManager,
+                                       dgSpec,
+                                       cacheContext,
+                                       providerCache,
+                                       cacheModifier,
+                                       sources,
+                                       _nuGetProjectContext.OperationId,
+                                       forceRestore,
+                                       isRestoreOriginalAction,
+                                       additionalMessages,
+                                       l,
+                                       t);
+
+                                    _packageCount += restoreSummaries.Select(summary => summary.InstallCount).Sum();
+                                    isRestoreSucceeded = restoreSummaries.All(summary => summary.Success == true);
+                                    _noOpProjectsCount += restoreSummaries.Where(summary => summary.NoOpRestore == true).Count();
+                                    _solutionUpToDateChecker.SaveRestoreStatus(restoreSummaries);
                                 }
-                                else if (_noOpProjectsCount < restoreSummaries.Count)
+                                catch
                                 {
-                                    _status = NuGetOperationStatus.Succeeded;
+                                    isRestoreSucceeded = false;
+                                    throw;
+                                }
+                                finally
+                                {
+                                    if (isRestoreSucceeded)
+                                    {
+                                        if (_noOpProjectsCount < restoreSummaries.Count)
+                                        {
+                                            _status = NuGetOperationStatus.Succeeded;
+                                        }
+                                        else
+                                        {
+                                            _status = NuGetOperationStatus.NoOp;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        _status = NuGetOperationStatus.Failed;
+                                    }
                                 }
                             },
                             token);
@@ -472,18 +523,19 @@ namespace NuGet.SolutionRestoreManager
                 return;
             }
 
-            if (args.Exception is SignatureException)
+            if (args.Exception is SignatureException ex)
             {
                 _status = NuGetOperationStatus.Failed;
-
-                var ex = args.Exception as SignatureException;
 
                 if (!string.IsNullOrEmpty(ex.Message))
                 {
                     _logger.Log(ex.AsLogMessage());
                 }
 
-                ex.Results.SelectMany(p => p.Issues).ToList().ForEach(p => _logger.Log(p));
+                if (ex.Results != null)
+                {
+                    ex.Results.SelectMany(p => p.Issues).ToList().ForEach(p => _logger.Log(p));
+                }
 
                 return;
             }
@@ -563,7 +615,10 @@ namespace NuGet.SolutionRestoreManager
                         token);
 
                     // Mark that work is being done during this restore
-                    _status = NuGetOperationStatus.Succeeded;
+                    if (_status == NuGetOperationStatus.NoOp) // if there's any error, _status != NoOp
+                    {
+                        _status = NuGetOperationStatus.Succeeded;
+                    }
                 }
 
                 ValidatePackagesConfigLockFiles(allProjects, token);
@@ -670,10 +725,20 @@ namespace NuGet.SolutionRestoreManager
 
                 var dte = await _asyncServiceProvider.GetDTEAsync();
                 var projects = dte.Solution.Projects;
-                return projects
-                    .OfType<EnvDTE.Project>()
-                    .Select(p => new ProjectInfo(EnvDTEProjectInfoUtility.GetFullPath(p), p.Name))
-                    .Any(p => p.CheckPackagesConfig());
+
+                var succeeded = false;
+
+                foreach (var p in projects.OfType<EnvDTE.Project>())
+                {
+                    var pi = new ProjectInfo(await p.GetFullPathAsync(), p.Name);
+                    if (pi.CheckPackagesConfig())
+                    {
+                        succeeded = true;
+                        break;
+                    }
+                }
+
+                return succeeded;
             });
         }
 

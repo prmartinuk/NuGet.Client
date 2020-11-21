@@ -219,10 +219,14 @@ namespace NuGet.Build.Tasks.Console.Test
         {
             using (var testDirectory = TestDirectory.Create())
             {
-                var project = new MockMSBuildProject(testDirectory, new Dictionary<string, string>
+                var project = new MockMSBuildProject(testDirectory,
+                properties: new Dictionary<string, string>
                 {
-                    ["RestorePackagesPathOverride"] = packagesPathOverride,
                     ["RestorePackagesPath"] = packagesPath
+                },
+                globalProperties: new Dictionary<string, string>
+                {
+                    ["RestorePackagesPath"] = packagesPathOverride,
                 });
 
                 var settings = new MockSettings
@@ -502,11 +506,15 @@ namespace NuGet.Build.Tasks.Console.Test
         {
             using (var testDirectory = TestDirectory.Create())
             {
-                var project = new MockMSBuildProject(testDirectory, new Dictionary<string, string>
+                var project = new MockMSBuildProject(testDirectory,
+                properties: new Dictionary<string, string>
                 {
                     ["RestoreRepositoryPath"] = restoreRepositoryPath,
-                    ["RestoreRepositoryPathOverride"] = repositoryPathOverride,
                     ["SolutionPath"] = solutionPath == null || solutionPath == "*Undefined*" ? solutionPath : UriUtility.GetAbsolutePath(testDirectory, solutionPath)
+                },
+                globalProperties: new Dictionary<string, string>
+                {
+                    ["RestoreRepositoryPath"] = repositoryPathOverride,
                 });
 
                 var settings = new MockSettings
@@ -535,6 +543,7 @@ namespace NuGet.Build.Tasks.Console.Test
         [InlineData(@"custom\", null, @"custom\")]
         [InlineData(null, @"obj2\", @"obj2\")]
         [InlineData(null, @"obj3", "obj3")]
+        [InlineData(null, null, null)]
         public void GetRestoreOutputPath_WhenOutputPathOrMSBuildProjectExtensionsPathSpecified_CorrectPathDetected(string restoreOutputPath, string msbuildProjectExtensionsPath, string expected)
         {
             using (var testDirectory = TestDirectory.Create())
@@ -547,9 +556,16 @@ namespace NuGet.Build.Tasks.Console.Test
 
                 var actual = MSBuildStaticGraphRestore.GetRestoreOutputPath(project);
 
-                expected = Path.Combine(testDirectory, expected);
+                if (expected == null)
+                {
+                    actual.Should().BeNull();
+                }
+                else
+                {
+                    expected = Path.Combine(testDirectory, expected);
 
-                actual.Should().Be(expected);
+                    actual.Should().Be(expected);
+                }
             }
         }
 
@@ -596,10 +612,14 @@ namespace NuGet.Build.Tasks.Console.Test
         [Fact]
         public void GetSources_WhenRestoreSourcesAndRestoreSourcesOverrideSpecified_CorrectSourcesDetected()
         {
-            var project = new MockMSBuildProject(new Dictionary<string, string>
+            var project = new MockMSBuildProject(
+            properties: new Dictionary<string, string>
             {
                 ["RestoreSources"] = "https://source1;https://source2",
-                ["RestoreSourcesOverride"] = "https://source3"
+            },
+            globalProperties: new Dictionary<string, string>
+            {
+                ["RestoreSources"] = "https://source3"
             });
 
             var settings = new MockSettings
@@ -725,6 +745,7 @@ namespace NuGet.Build.Tasks.Console.Test
             // Arrange
             string netstandard22 = "netstandard2.2";
             string netstandard20 = "netstandard2.0";
+            string netstandard23 = "netstandard2.3";
 
             var innerNodes = new Dictionary<string, IMSBuildProject>
             {
@@ -734,7 +755,7 @@ namespace NuGet.Build.Tasks.Console.Test
                     {
                         ["PackageReference"] = new List<IMSBuildItem>
                         {
-                            new MSBuildItem("PackageA", new Dictionary<string, string> { ["IsImplicitlyDefined"] = bool.FalseString }),
+                            new MSBuildItem("PackageA", new Dictionary<string, string> { ["IsImplicitlyDefined"] = bool.TrueString }),
                         },
                         ["PackageVersion"] = new List<IMSBuildItem>
                         {
@@ -756,14 +777,29 @@ namespace NuGet.Build.Tasks.Console.Test
                             new MSBuildItem("PackageB", new Dictionary<string, string> { ["Version"] = "3.2.0" }),
                         },
                     }),
+                [netstandard23] = new MockMSBuildProject("Project-netstandard2.3",
+                    new Dictionary<string, string>(),
+                    new Dictionary<string, IList<IMSBuildItem>>
+                    {
+                        ["PackageReference"] = new List<IMSBuildItem>
+                        {
+                            new MSBuildItem("PackageA", new Dictionary<string, string> { ["IsImplicitlyDefined"] = bool.FalseString }),
+                        },
+                        ["PackageVersion"] = new List<IMSBuildItem>
+                        {
+                            new MSBuildItem("PackageA", new Dictionary<string, string> { ["Version"] = "2.0.0" }),
+                            new MSBuildItem("PackageB", new Dictionary<string, string> { ["Version"] = "3.0.0" }),
+                        },
+                    }),
             };
 
             var targetFrameworkInfos = MSBuildStaticGraphRestore.GetTargetFrameworkInfos(innerNodes, isCpvmEnabled: true);
 
             // Assert
-            Assert.Equal(2, targetFrameworkInfos.Count);
+            Assert.Equal(3, targetFrameworkInfos.Count);
             var framework20 = targetFrameworkInfos.Single(f => f.TargetAlias == netstandard20);
             var framework22 = targetFrameworkInfos.Single(f => f.TargetAlias == netstandard22);
+            var framework23 = targetFrameworkInfos.Single(f => f.TargetAlias == netstandard23);
 
             Assert.Equal(1, framework20.Dependencies.Count);
             Assert.Equal("PackageA", framework20.Dependencies.First().Name);
@@ -780,6 +816,10 @@ namespace NuGet.Build.Tasks.Console.Test
             Assert.Equal(2, framework22.CentralPackageVersions.Count);
             Assert.Equal("2.2.2", framework22.CentralPackageVersions["PackageA"].VersionRange.OriginalString);
             Assert.Equal("3.2.0", framework22.CentralPackageVersions["PackageB"].VersionRange.OriginalString);
+
+            Assert.Equal(1, framework23.Dependencies.Count);
+            Assert.Equal("PackageA", framework23.Dependencies.First().Name);
+            Assert.Equal("2.0.0", framework23.Dependencies.First().LibraryRange.VersionRange.OriginalString);
         }
 
         [Fact]

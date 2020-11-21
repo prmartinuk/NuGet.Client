@@ -1,12 +1,16 @@
+// Copyright (c) .NET Foundation. All rights reserved.
+// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.ServiceHub.Framework;
 using Moq;
 using NuGet.PackageManagement.VisualStudio;
-using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
+using NuGet.VisualStudio.Internal.Contracts;
 using Test.Utility;
 using Xunit;
 
@@ -14,15 +18,17 @@ namespace NuGet.PackageManagement.UI.Test
 {
     public class PackageManagerListItemsTest
     {
-
         [Fact]
         public async Task PackagePrefixReservation_FromOneSource()
         {
-            var solutionManager = Mock.Of<IVsSolutionManager>();
-            var uiContext = Mock.Of<INuGetUIContext>();
-            Mock.Get(uiContext)
-                .Setup(x => x.SolutionManager)
+            var solutionManager = Mock.Of<INuGetSolutionManagerService>();
+            var uiContext = new Mock<INuGetUIContext>();
+
+            uiContext.Setup(x => x.SolutionManagerService)
                 .Returns(solutionManager);
+
+            uiContext.Setup(x => x.ServiceBroker)
+                .Returns(Mock.Of<IServiceBroker>());
 
             // Arrange
             var responses = new Dictionary<string, string>
@@ -40,19 +46,19 @@ namespace NuGet.PackageManagement.UI.Test
                 repo
             };
 
-            var context = new PackageLoadContext(repositories, false, uiContext);
+            var context = new PackageLoadContext(repositories, isSolution: false, uiContext.Object);
 
             var packageFeed = new MultiSourcePackageFeed(repositories, logger: null, telemetryService: null);
-            var loader = new PackageItemLoader(context, packageFeed, "EntityFramework", false);
+            var loader = new PackageItemLoader(context, packageFeed, "EntityFramework", includePrerelease: false);
 
             var loaded = new List<PackageItemListViewModel>();
             foreach (var page in Enumerable.Range(0, 5))
             {
-                await loader.LoadNextAsync(null, CancellationToken.None);
+                await loader.LoadNextAsync(progress: null, CancellationToken.None);
                 while (loader.State.LoadingStatus == LoadingStatus.Loading)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(1));
-                    await loader.UpdateStateAsync(null, CancellationToken.None);
+                    await loader.UpdateStateAsync(progress: null, CancellationToken.None);
                 }
 
                 var items = loader.GetCurrent();
@@ -72,11 +78,14 @@ namespace NuGet.PackageManagement.UI.Test
         [Fact]
         public async Task PackagePrefixReservation_FromMultiSource()
         {
-            var solutionManager = Mock.Of<IVsSolutionManager>();
-            var uiContext = Mock.Of<INuGetUIContext>();
-            Mock.Get(uiContext)
-                .Setup(x => x.SolutionManager)
+            var solutionManager = Mock.Of<INuGetSolutionManagerService>();
+            var uiContext = new Mock<INuGetUIContext>();
+
+            uiContext.Setup(x => x.SolutionManagerService)
                 .Returns(solutionManager);
+
+            uiContext.Setup(x => x.ServiceBroker)
+                .Returns(Mock.Of<IServiceBroker>());
 
             // Arrange
             var responses = new Dictionary<string, string>
@@ -98,10 +107,10 @@ namespace NuGet.PackageManagement.UI.Test
                 repo1
             };
 
-            var context = new PackageLoadContext(repositories, false, uiContext);
+            var context = new PackageLoadContext(repositories, isSolution: false, uiContext.Object);
 
             var packageFeed = new MultiSourcePackageFeed(repositories, logger: null, telemetryService: null);
-            var loader = new PackageItemLoader(context, packageFeed, "EntityFramework", false);
+            var loader = new PackageItemLoader(context, packageFeed, "EntityFramework", includePrerelease: false);
 
             var loaded = new List<PackageItemListViewModel>();
             foreach (var page in Enumerable.Range(0, 5))
@@ -110,7 +119,7 @@ namespace NuGet.PackageManagement.UI.Test
                 while (loader.State.LoadingStatus == LoadingStatus.Loading)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(1));
-                    await loader.UpdateStateAsync(null, CancellationToken.None);
+                    await loader.UpdateStateAsync(progress: null, CancellationToken.None);
                 }
 
                 var items = loader.GetCurrent();

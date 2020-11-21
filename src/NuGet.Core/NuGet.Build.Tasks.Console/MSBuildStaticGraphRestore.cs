@@ -247,7 +247,7 @@ namespace NuGet.Build.Tasks.Console
         internal static string GetPackagesPath(IMSBuildProject project, ISettings settings)
         {
             return RestoreSettingsUtils.GetValue(
-                () => UriUtility.GetAbsolutePath(project.Directory, project.GetProperty("RestorePackagesPathOverride")),
+                () => UriUtility.GetAbsolutePath(project.Directory, project.GetGlobalProperty("RestorePackagesPath")),
                 () => UriUtility.GetAbsolutePath(project.Directory, project.GetProperty("RestorePackagesPath")),
                 () => SettingsUtility.GetGlobalPackagesFolder(settings));
         }
@@ -405,7 +405,7 @@ namespace NuGet.Build.Tasks.Console
         internal static string GetRepositoryPath(IMSBuildProject project, ISettings settings)
         {
             return RestoreSettingsUtils.GetValue(
-                () => UriUtility.GetAbsolutePath(project.Directory, project.GetProperty("RestoreRepositoryPathOverride")),
+                () => UriUtility.GetAbsolutePath(project.Directory, project.GetGlobalProperty("RestoreRepositoryPath")),
                 () => UriUtility.GetAbsolutePath(project.Directory, project.GetProperty("RestoreRepositoryPath")),
                 () => SettingsUtility.GetRepositoryPath(settings),
                 () =>
@@ -424,12 +424,12 @@ namespace NuGet.Build.Tasks.Console
         /// Gets the restore output path for the specified project.
         /// </summary>
         /// <param name="project">The <see cref="IMSBuildItem" /> representing the project.</param>
-        /// <returns>The full path to the restore output directory for the specified project.</returns>
+        /// <returns>The full path to the restore output directory for the specified project if a value is specified, otherwise <code>null</code>.</returns>
         internal static string GetRestoreOutputPath(IMSBuildProject project)
         {
             string outputPath = project.GetProperty("RestoreOutputPath") ?? project.GetProperty("MSBuildProjectExtensionsPath");
 
-            return Path.GetFullPath(Path.Combine(project.Directory, outputPath));
+            return outputPath == null ? null : Path.GetFullPath(Path.Combine(project.Directory, outputPath));
         }
 
         /// <summary>
@@ -442,9 +442,10 @@ namespace NuGet.Build.Tasks.Console
         internal static List<PackageSource> GetSources(IMSBuildProject project, IReadOnlyCollection<IMSBuildProject> innerNodes, ISettings settings)
         {
             return BuildTasksUtility.GetSources(
+                project.GetGlobalProperty("OriginalMSBuildStartupDirectory"),
                 project.Directory,
                 project.SplitPropertyValueOrNull("RestoreSources"),
-                project.SplitPropertyValueOrNull("RestoreSourcesOverride"),
+                project.SplitGlobalPropertyValueOrNull("RestoreSources"),
                 innerNodes.SelectMany(i => MSBuildStringUtility.Split(i.GetProperty("RestoreAdditionalProjectSources"))),
                 settings)
                 .Select(i => new PackageSource(i))
@@ -559,6 +560,7 @@ namespace NuGet.Build.Tasks.Console
                 if (isCpvmEnabled && targetFrameworkInformation.Dependencies.Any())
                 {
                     targetFrameworkInformation.CentralPackageVersions.AddRange(GetCentralPackageVersions(msBuildProjectInstance));
+                    LibraryDependency.ApplyCentralVersionInformation(targetFrameworkInformation.Dependencies, targetFrameworkInformation.CentralPackageVersions);
                 }
 
                 targetFrameworkInfos.Add(targetFrameworkInformation);
@@ -605,6 +607,8 @@ namespace NuGet.Build.Tasks.Console
                     // Get the PackageSpecs in parallel because creating each one is relatively expensive so parallelism speeds things up
                     Parallel.ForEach(projects, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, project =>
                     {
+                        MSBuildLogger.LogMinimal($"For {project.OuterProject.FullPath}," +
+                            $" the value of MSBuildStartupDirectory:{project.OuterProject.GetProperty("MSBuildStartupDirectory")}");
                         var packageSpec = GetPackageSpec(project.OuterProject, project);
 
                         if (packageSpec != null)
@@ -622,7 +626,6 @@ namespace NuGet.Build.Tasks.Console
                                 projectPathLookup.TryAdd(projectPath, projectPath);
                             }
 
-                            // TODO: Remove this lock once https://github.com/NuGet/Home/issues/9002 is fixed
                             lock (dependencyGraphSpec)
                             {
                                 dependencyGraphSpec.AddProject(packageSpec);
@@ -688,13 +691,18 @@ namespace NuGet.Build.Tasks.Console
             // Get the target frameworks for the project and the project instance for each framework
             var projectsByTargetFramework = GetProjectTargetFrameworks(project, allInnerNodes);
 
-            var restoreMetadataAndTargetFrameworkInformation = GetProjectRestoreMetadataAndTargetFrameworkInformation(project, projectsByTargetFramework, settings);
+            (ProjectRestoreMetadata restoreMetadata, List<TargetFrameworkInformation> targetFrameworkInfos) = GetProjectRestoreMetadataAndTargetFrameworkInformation(project, projectsByTargetFramework, settings);
 
-            var packageSpec = new PackageSpec(restoreMetadataAndTargetFrameworkInformation.TargetFrameworkInfos)
+            if (restoreMetadata == null || targetFrameworkInfos == null)
+            {
+                return null;
+            }
+
+            var packageSpec = new PackageSpec(targetFrameworkInfos)
             {
                 FilePath = project.FullPath,
-                Name = restoreMetadataAndTargetFrameworkInformation.RestoreMetadata.ProjectName,
-                RestoreMetadata = restoreMetadataAndTargetFrameworkInformation.RestoreMetadata,
+                Name = restoreMetadata.ProjectName,
+                RestoreMetadata = restoreMetadata,
                 RuntimeGraph = new RuntimeGraph(
                     MSBuildStringUtility.Split($"{project.GetProperty("RuntimeIdentifiers")};{project.GetProperty("RuntimeIdentifier")}")
                         .Concat(projectsByTargetFramework.Values.SelectMany(i => MSBuildStringUtility.Split($"{i.GetProperty("RuntimeIdentifiers")};{i.GetProperty("RuntimeIdentifier")}")))
@@ -759,9 +767,10 @@ namespace NuGet.Build.Tasks.Console
                     CrossTargeting = (projectStyle == ProjectStyle.PackageReference || projectStyle == ProjectStyle.DotnetToolReference) && (
                         projectsByTargetFramework.Count > 1 || !string.IsNullOrWhiteSpace(project.GetProperty("TargetFrameworks"))),
                     FallbackFolders = BuildTasksUtility.GetFallbackFolders(
+                        project.GetProperty("MSBuildStartupDirectory"),
                         project.Directory,
                         project.SplitPropertyValueOrNull("RestoreFallbackFolders"),
-                        project.SplitPropertyValueOrNull("RestoreFallbackFoldersOverride"),
+                        project.SplitGlobalPropertyValueOrNull("RestoreFallbackFolders"),
                         innerNodes.SelectMany(i => MSBuildStringUtility.Split(i.GetProperty("RestoreAdditionalProjectFallbackFolders"))),
                         innerNodes.SelectMany(i => MSBuildStringUtility.Split(i.GetProperty("RestoreAdditionalProjectFallbackFoldersExcludes"))),
                         settings),

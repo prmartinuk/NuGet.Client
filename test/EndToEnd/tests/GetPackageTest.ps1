@@ -497,6 +497,7 @@ function Test-GetInstalledPackageWithFilterReturnsCorrectPackage
 
 function Test-GetPackageUpdatesAfterSwitchToSourceThatDoesNotContainInstalledPackageId
 {
+    [SkipTest('https://github.com/NuGet/Home/issues/10254')]
     param
     (
         $context
@@ -508,7 +509,7 @@ function Test-GetPackageUpdatesAfterSwitchToSourceThatDoesNotContainInstalledPac
     $p | Install-Package antlr -Version '3.1.1' -Source $SourceNuGet
 
     # Act
-    $packages = @(Get-Package -updates -Source 'https://dotnet.myget.org/F/nuget-volatile/api/v3/index.json')
+    $packages = @(Get-Package -updates -Source 'https://pkgs.dev.azure.com/dnceng/public/_packaging/nuget-build/nuget/v3/index.json')
 
     # Assert
     Assert-AreEqual 0 $packages.Count

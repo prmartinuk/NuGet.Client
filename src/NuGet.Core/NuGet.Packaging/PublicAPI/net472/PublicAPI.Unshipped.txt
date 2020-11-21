@@ -1,3 +1,8 @@
+static NuGet.Packaging.Rules.AnalysisResources.InvalidUndottedFrameworkInDependencyGroupsWarning.get -> string
+static NuGet.Packaging.Rules.AnalysisResources.InvalidUndottedFrameworkInFilesWarning.get -> string
+static NuGet.Packaging.Rules.AnalysisResources.InvalidUndottedFrameworkInFrameworkAssemblyGroupsWarning.get -> string
+static NuGet.Packaging.Rules.AnalysisResources.InvalidUndottedFrameworkInReferenceGroupsWarning.get -> string
+static NuGet.Packaging.Rules.AnalysisResources.InvalidUndottedFrameworkWarning.get -> string
 NuGet.Packaging.ManifestMetadata.EmitRequireLicenseAcceptance.get -> bool
 NuGet.Packaging.ManifestMetadata.EmitRequireLicenseAcceptance.set -> void
 NuGet.Packaging.PackageBuilder.EmitRequireLicenseAcceptance.get -> bool

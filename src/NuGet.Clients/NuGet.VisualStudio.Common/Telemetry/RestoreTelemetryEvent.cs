@@ -17,7 +17,6 @@ namespace NuGet.VisualStudio
         public const string SolutionDependencyGraphSpecCreation = nameof(SolutionDependencyGraphSpecCreation);
         public const string PackageReferenceRestoreDuration = nameof(PackageReferenceRestoreDuration);
         public const string SolutionUpToDateCheck = nameof(SolutionUpToDateCheck);
-        private const string UpToDateProjectCount = nameof(UpToDateProjectCount);
 
         public RestoreTelemetryEvent(
             string operationId,
@@ -29,14 +28,30 @@ namespace NuGet.VisualStudio
             int packageCount,
             int noOpProjectsCount,
             int upToDateProjectsCount,
+            int unknownProjectsCount,
+            int projectJsonProjectsCount,
+            int packageReferenceProjectsCount,
+            int legacyPackageReferenceProjectsCount,
+            int cpsPackageReferenceProjectsCount,
+            int dotnetCliToolProjectsCount,
+            int packagesConfigProjectsCount,
             DateTimeOffset endTime,
             double duration,
+            bool isSolutionLoadRestore,
             IntervalTracker intervalTimingTracker) : base(RestoreActionEventName, operationId, projectIds, startTime, status, packageCount, endTime, duration)
         {
             base[nameof(OperationSource)] = source;
             base[nameof(NoOpProjectsCount)] = noOpProjectsCount;
-            base[UpToDateProjectCount] = upToDateProjectsCount;
+            base[nameof(UpToDateProjectCount)] = upToDateProjectsCount;
+            base[nameof(UnknownProjectsCount)] = unknownProjectsCount;
+            base[nameof(ProjectJsonProjectsCount)] = projectJsonProjectsCount;
+            base[nameof(PackageReferenceProjectsCount)] = packageReferenceProjectsCount;
+            base[nameof(LegacyPackageReferenceProjectsCount)] = legacyPackageReferenceProjectsCount;
+            base[nameof(CpsPackageReferenceProjectsCount)] = cpsPackageReferenceProjectsCount;
+            base[nameof(DotnetCliToolProjectsCount)] = dotnetCliToolProjectsCount;
+            base[nameof(PackagesConfigProjectsCount)] = packagesConfigProjectsCount;
             base[nameof(ForceRestore)] = forceRestore;
+            base[nameof(IsSolutionLoadRestore)] = isSolutionLoadRestore;
 
             foreach (var (intervalName, intervalDuration) in intervalTimingTracker.GetIntervals())
             {
@@ -51,5 +66,23 @@ namespace NuGet.VisualStudio
         public int NoOpProjectsCount => (int)base[nameof(NoOpProjectsCount)];
 
         public bool ForceRestore => (bool)base[nameof(ForceRestore)];
+
+        public bool IsSolutionLoadRestore => (bool)base[nameof(IsSolutionLoadRestore)];
+
+        public int UpToDateProjectCount => (int)base[nameof(UpToDateProjectCount)];
+
+        public int UnknownProjectsCount => (int)base[nameof(UnknownProjectsCount)];
+
+        public int ProjectJsonProjectsCount => (int)base[nameof(ProjectJsonProjectsCount)];
+
+        public int PackageReferenceProjectsCount => (int)base[nameof(PackageReferenceProjectsCount)];
+
+        public int LegacyPackageReferenceProjectsCount => (int)base[nameof(LegacyPackageReferenceProjectsCount)];
+
+        public int CpsPackageReferenceProjectsCount => (int)base[nameof(CpsPackageReferenceProjectsCount)];
+
+        public int DotnetCliToolProjectsCount => (int)base[nameof(DotnetCliToolProjectsCount)];
+
+        public int PackagesConfigProjectsCount => (int)base[nameof(PackagesConfigProjectsCount)];
     }
 }

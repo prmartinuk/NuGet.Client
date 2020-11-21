@@ -69,6 +69,7 @@ namespace NuGet.PackageManagement.UI
             _content.Model.Context.UserSettingsManager.PersistSettings();
 
             pgrfSaveOptions = (uint)__FRAMECLOSE.FRAMECLOSE_NoSave;
+
             return VSConstants.S_OK;
         }
 

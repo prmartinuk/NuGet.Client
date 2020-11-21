@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.ServiceHub.Framework;
 using Moq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -18,6 +19,7 @@ using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using NuGet.Test.Utility;
 using NuGet.Versioning;
+using NuGet.VisualStudio.Internal.Contracts;
 using Test.Utility;
 using Xunit;
 
@@ -30,19 +32,22 @@ namespace NuGet.PackageManagement.UI.Test
         [Fact]
         public async Task MultipleSources_Works()
         {
-            var solutionManager = Mock.Of<IVsSolutionManager>();
-            var uiContext = Mock.Of<INuGetUIContext>();
-            Mock.Get(uiContext)
-                .Setup(x => x.SolutionManager)
+            var solutionManager = Mock.Of<INuGetSolutionManagerService>();
+            var uiContext = new Mock<INuGetUIContext>();
+
+            uiContext.Setup(x => x.SolutionManagerService)
                 .Returns(solutionManager);
 
-            var source1 = new PackageSource("https://dotnet.myget.org/F/nuget-volatile/api/v3/index.json", "NuGetVolatile");
+            uiContext.Setup(x => x.ServiceBroker)
+                .Returns(Mock.Of<IServiceBroker>());
+
+            var source1 = new PackageSource("https://pkgs.dev.azure.com/dnceng/public/_packaging/nuget-build/nuget/v3/index.json", "NuGetBuild");
             var source2 = new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org");
 
             var sourceRepositoryProvider = TestSourceRepositoryUtility.CreateSourceRepositoryProvider(new[] { source1, source2 });
             var repositories = sourceRepositoryProvider.GetRepositories();
 
-            var context = new PackageLoadContext(repositories, false, uiContext);
+            var context = new PackageLoadContext(repositories, isSolution: false, uiContext.Object);
 
             var packageFeed = new MultiSourcePackageFeed(repositories, logger: null, telemetryService: null);
             var loader = new PackageItemLoader(context, packageFeed, "nuget");
@@ -54,7 +59,7 @@ namespace NuGet.PackageManagement.UI.Test
                 while (loader.State.LoadingStatus == LoadingStatus.Loading)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(1));
-                    await loader.UpdateStateAsync(null, CancellationToken.None);
+                    await loader.UpdateStateAsync(progress: null, CancellationToken.None);
                 }
 
                 var items = loader.GetCurrent();
@@ -79,11 +84,14 @@ namespace NuGet.PackageManagement.UI.Test
         public async Task EmitsSearchTelemetryEvents()
         {
             // Arrange
-            var solutionManager = Mock.Of<IVsSolutionManager>();
-            var uiContext = Mock.Of<INuGetUIContext>();
-            Mock.Get(uiContext)
-                .Setup(x => x.SolutionManager)
+            var solutionManager = Mock.Of<INuGetSolutionManagerService>();
+            var uiContext = new Mock<INuGetUIContext>();
+
+            uiContext.Setup(x => x.SolutionManagerService)
                 .Returns(solutionManager);
+
+            uiContext.Setup(x => x.ServiceBroker)
+                .Returns(Mock.Of<IServiceBroker>());
 
             var telemetryService = new Mock<INuGetTelemetryService>();
             var eventsQueue = new ConcurrentQueue<TelemetryEvent>();
@@ -118,14 +126,14 @@ namespace NuGet.PackageManagement.UI.Test
                 var sourceRepositoryProvider = TestSourceRepositoryUtility.CreateSourceRepositoryProvider(new[] { new PackageSource(source) }, new Lazy<INuGetResourceProvider>[] { new Lazy<INuGetResourceProvider>(() => new TestHttpSourceResourceProvider(injectedHttpSources)) });
                 var repositories = sourceRepositoryProvider.GetRepositories();
 
-                var context = new PackageLoadContext(repositories, false, uiContext);
+                var context = new PackageLoadContext(repositories, isSolution: false, uiContext.Object);
 
                 var packageFeed = new MultiSourcePackageFeed(repositories, logger: null, telemetryService: telemetryService.Object);
 
                 // Act
                 var loader = new PackageItemLoader(context, packageFeed, searchText: "nuget", includePrerelease: true);
-                await loader.LoadNextAsync(null, CancellationToken.None);
-                await loader.LoadNextAsync(null, CancellationToken.None);
+                await loader.LoadNextAsync(progress: null, CancellationToken.None);
+                await loader.LoadNextAsync(progress: null, CancellationToken.None);
 
                 // Assert
                 var events = eventsQueue.ToArray();
@@ -167,13 +175,13 @@ namespace NuGet.PackageManagement.UI.Test
         [Fact]
         public async Task GetTotalCountAsync_Works()
         {
-            var solutionManager = Mock.Of<IVsSolutionManager>();
+            var solutionManager = Mock.Of<INuGetSolutionManagerService>();
             var uiContext = Mock.Of<INuGetUIContext>();
             Mock.Get(uiContext)
-                .Setup(x => x.SolutionManager)
+                .Setup(x => x.SolutionManagerService)
                 .Returns(solutionManager);
 
-            var source1 = new PackageSource("https://dotnet.myget.org/F/nuget-volatile/api/v3/index.json", "NuGetVolatile");
+            var source1 = new PackageSource("https://pkgs.dev.azure.com/dnceng/public/_packaging/nuget-build/nuget/v3/index.json", "NuGetBuild");
             var source2 = new PackageSource("https://api.nuget.org/v3/index.json", "NuGet.org");
 
             var sourceRepositoryProvider = TestSourceRepositoryUtility.CreateSourceRepositoryProvider(new[] { source1, source2 });
@@ -192,15 +200,18 @@ namespace NuGet.PackageManagement.UI.Test
         [Fact]
         public async Task LoadNextAsync_Works()
         {
-            var solutionManager = Mock.Of<IVsSolutionManager>();
-            var uiContext = Mock.Of<INuGetUIContext>();
-            Mock.Get(uiContext)
-                .Setup(x => x.SolutionManager)
+            var solutionManager = Mock.Of<INuGetSolutionManagerService>();
+            var uiContext = new Mock<INuGetUIContext>();
+
+            uiContext.Setup(x => x.SolutionManagerService)
                 .Returns(solutionManager);
 
-            var context = new PackageLoadContext(null, false, uiContext);
+            uiContext.Setup(x => x.ServiceBroker)
+                .Returns(Mock.Of<IServiceBroker>());
+
+            var context = new PackageLoadContext(sourceRepositories: null, isSolution: false, uiContext.Object);
             var packageFeed = new TestPackageFeed();
-            var loader = new PackageItemLoader(context, packageFeed, TestSearchTerm, true);
+            var loader = new PackageItemLoader(context, packageFeed, TestSearchTerm, includePrerelease: true);
 
             Assert.Equal(LoadingStatus.Unknown, loader.State.LoadingStatus);
             var initial = loader.GetCurrent();
@@ -208,20 +219,20 @@ namespace NuGet.PackageManagement.UI.Test
 
             var loaded = new List<PackageItemListViewModel>();
 
-            await loader.LoadNextAsync(null, CancellationToken.None);
+            await loader.LoadNextAsync(progress: null, CancellationToken.None);
 
             Assert.Equal(LoadingStatus.Loading, loader.State.LoadingStatus);
             var partial = loader.GetCurrent();
             Assert.Empty(partial);
 
             await Task.Delay(TimeSpan.FromSeconds(1));
-            await loader.UpdateStateAsync(null, CancellationToken.None);
+            await loader.UpdateStateAsync(progress: null, CancellationToken.None);
 
             Assert.NotEqual(LoadingStatus.Loading, loader.State.LoadingStatus);
             loaded.AddRange(loader.GetCurrent());
 
             Assert.Equal(LoadingStatus.Ready, loader.State.LoadingStatus);
-            await loader.LoadNextAsync(null, CancellationToken.None);
+            await loader.LoadNextAsync(progress: null, CancellationToken.None);
 
             Assert.Equal(LoadingStatus.NoMoreItems, loader.State.LoadingStatus);
             loaded.AddRange(loader.GetCurrent());
@@ -233,11 +244,14 @@ namespace NuGet.PackageManagement.UI.Test
         public async Task PackageReader_NotNull()
         {
             // Prepare
-            var solutionManager = Mock.Of<IVsSolutionManager>();
-            var uiContext = Mock.Of<INuGetUIContext>();
-            Mock.Get(uiContext)
-                .Setup(x => x.SolutionManager)
+            var solutionManager = Mock.Of<INuGetSolutionManagerService>();
+            var uiContext = new Mock<INuGetUIContext>();
+
+            uiContext.Setup(x => x.SolutionManagerService)
                 .Returns(solutionManager);
+
+            uiContext.Setup(x => x.ServiceBroker)
+                .Returns(Mock.Of<IServiceBroker>());
 
             using (var localFeedDir = TestDirectory.Create()) // local feed
             {
@@ -253,13 +267,13 @@ namespace NuGet.PackageManagement.UI.Test
                 var sourceRepositoryProvider = TestSourceRepositoryUtility.CreateSourceRepositoryProvider(new[] { localSource });
                 var repositories = sourceRepositoryProvider.GetRepositories();
 
-                var context = new PackageLoadContext(repositories, false, uiContext);
+                var context = new PackageLoadContext(repositories, isSolution: false, uiContext.Object);
 
                 var packageFeed = new MultiSourcePackageFeed(repositories, logger: null, telemetryService: null);
                 var loader = new PackageItemLoader(context, packageFeed, "nuget");
 
                 // Act
-                await loader.LoadNextAsync(null, CancellationToken.None);
+                await loader.LoadNextAsync(progress: null, CancellationToken.None);
                 var results = loader.GetCurrent();
 
                 // Assert

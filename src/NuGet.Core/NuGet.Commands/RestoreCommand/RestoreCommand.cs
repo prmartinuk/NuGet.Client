@@ -408,13 +408,16 @@ namespace NuGet.Commands
 
         private bool HasValidPlatformVersions()
         {
-            IEnumerable<NuGetFramework> badPlatforms = _request.Project.TargetFrameworks.Select(tfm => tfm.FrameworkName).Where(fw => !string.IsNullOrEmpty(fw.Platform) && (fw.PlatformVersion == FrameworkConstants.EmptyVersion));
+            IEnumerable<NuGetFramework> badPlatforms = _request.Project.TargetFrameworks
+                .Select(frameworkInfo => frameworkInfo.FrameworkName)
+                .Where(framework => !string.IsNullOrEmpty(framework.Platform) && (framework.PlatformVersion == FrameworkConstants.EmptyVersion));
+
             if (badPlatforms.Any())
             {
-                foreach (NuGetFramework fw in badPlatforms)
-                {
-                    _logger.Log(RestoreLogMessage.CreateError(NuGetLogCode.NU1012, string.Format(CultureInfo.CurrentCulture, Strings.Error_PlatformVersionNotPresent, fw.Framework, fw.Platform)));
-                }
+                _logger.Log(RestoreLogMessage.CreateError(
+                    NuGetLogCode.NU1012,
+                    string.Format(CultureInfo.CurrentCulture, Strings.Error_PlatformVersionNotPresent, string.Join(", ", badPlatforms))
+                ));
                 return false;
             }
             else
@@ -618,8 +621,7 @@ namespace NuGet.Commands
             // DgSpec doesn't contain log messages, so skip no-op if there are any, as it's not taken into account in the hash
             if (_request.AllowNoOp &&
                 !_request.RestoreForceEvaluate &&
-                File.Exists(_request.Project.RestoreMetadata.CacheFilePath) ||
-                _request.AdditionalMessages?.Count > 0)
+                File.Exists(_request.Project.RestoreMetadata.CacheFilePath))
             {
                 cacheFile = FileUtility.SafeRead(_request.Project.RestoreMetadata.CacheFilePath, (stream, path) => CacheFileFormat.Read(stream, _logger, path));
 
