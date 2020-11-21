@@ -13,6 +13,8 @@ using System.Xml.Linq;
 using Moq;
 using NuGet.Frameworks;
 using NuGet.Packaging.Core;
+using NuGet.Packaging.Licenses;
+using NuGet.Packaging.PackageCreation.Resources;
 using NuGet.Test.Utility;
 using NuGet.Versioning;
 using Xunit;
@@ -2852,6 +2854,67 @@ Enabling license acceptance requires a license or a licenseUrl to be specified. 
                                 Assert.Equal(entry.LastWriteTime.DateTime, File.GetLastWriteTimeUtc(path));
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(true, true)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        [InlineData(false, false)]
+        public void EmitRequireLicenseAcceptance(bool emitRequireLicense, bool requireLicense)
+        {
+            var shouldBeEmitted = requireLicense && emitRequireLicense;
+            var shouldThrow = requireLicense && !emitRequireLicense;
+
+            var builder = new PackageBuilder
+            {
+                Id = "test",
+                Version = new NuGetVersion("0.0.1"),
+                Authors = { "TestAuthors" },
+                Description = "Test package for EmitRequireLicenseAcceptance",
+                EmitRequireLicenseAcceptance = emitRequireLicense,
+                RequireLicenseAcceptance = requireLicense,
+                LicenseMetadata = requireLicense
+                    ? new LicenseMetadata(LicenseType.Expression, "MIT", NuGetLicenseExpression.Parse("MIT"), warningsAndErrors: null, LicenseMetadata.EmptyVersion)
+                    : null,
+                DependencyGroups =
+                {
+                    new PackageDependencyGroup(
+                        NuGetFramework.Parse("netstandard1.4"),
+                        new[] { new PackageDependency("another.dep", VersionRange.Parse("0.0.1")) }),
+                },
+            };
+
+            if (shouldThrow)
+            {
+                var ex = Assert.Throws<Exception>(() => builder.Save(Stream.Null));
+                Assert.Equal(NuGetResources.Manifest_RequireLicenseAcceptanceRequiresEmit, ex.Message);
+                return;
+            }
+
+            using (var testDir = TestDirectory.Create())
+            {
+                var packagePath = Path.Combine(testDir, "test.0.0.1.nupkg");
+
+                using (var nupkgStream = File.Create(packagePath))
+                {
+                    builder.Save(nupkgStream);
+                }
+
+                var reader = new PackageArchiveReader(packagePath);
+
+                Assert.Equal(shouldBeEmitted, reader.NuspecReader.GetRequireLicenseAcceptance());
+
+                using (var nureader = new StreamReader(reader.GetNuspec()))
+                {
+                    var nuspecContent = nureader.ReadToEnd();
+
+                    if (shouldBeEmitted)
+                    {
+                        Assert.Contains("<requireLicenseAcceptance>true</requireLicenseAcceptance>", nuspecContent);
                     }
                 }
             }
