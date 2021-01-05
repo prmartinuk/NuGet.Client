@@ -30,6 +30,7 @@ namespace NuGet.VisualStudio.Internal.Contracts.Test
 
             Assert.Equal(expectedResult.DownloadCount, actualResult.DownloadCount);
             Assert.Equal(expectedResult.Version, actualResult.Version);
+            // TODO: FAILING TEST: actualResult.PackageDeprecationMetadata is null, so we nullref here. 4 props appear to be written, but when reading, only 3 props are read.
             Assert.Equal(expectedResult.PackageDeprecationMetadata.Message, actualResult.PackageDeprecationMetadata.Message);
             Assert.Equal(expectedResult.PackageSearchMetadata.Identity, actualResult.PackageSearchMetadata.Identity);
         }
